@@ -1,0 +1,5 @@
+py-cord
+google-cloud-speech API
+python-dotenv
+Groq API
+discord.py

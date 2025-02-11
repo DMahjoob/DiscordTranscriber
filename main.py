@@ -2,11 +2,12 @@ import discord
 from discord.ext import commands
 from google.cloud import speech
 import os
-from groq import Groq
 import subprocess
+import asyncio
 from dotenv import load_dotenv
-from format import conversationSummarySchema
+from groq import Groq
 from desolation import information
+from format import conversationSummarySchema
 
 # Load environment variables from .env file
 load_dotenv()
@@ -15,7 +16,6 @@ load_dotenv()
 DISCORD_BOT_TOKEN = os.getenv("DISCORD_BOT_TOKEN")
 GOOGLE_APPLICATION_CREDENTIALS = os.getenv("GOOGLE_APPLICATION_CREDENTIALS")
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
-GROQ_URL = os.getenv("GROQ_URL")
 
 # Set up Google Cloud Speech-to-Text client
 client = speech.SpeechClient()
@@ -24,6 +24,8 @@ client = speech.SpeechClient()
 intents = discord.Intents.default()
 bot = commands.Bot(command_prefix="!", intents=intents)
 
+# Keep track of the FFmpeg process
+ffmpeg_process = None
 
 # Function to transcribe audio to text using Google Cloud Speech-to-Text
 def transcribe_audio(audio_file):
@@ -46,9 +48,14 @@ def transcribe_audio(audio_file):
     return transcript
 
 def generate_summary_and_action_items(transcript):
-    client = Groq(api_key=os.environ.get("GROQ_API_KEY"))
-    prompt = (f"You are writing notes based on this transcript for the game: Pokemon Desolation. "
-              f"There are many important locations and characters, such as these {information}."
+    client = Groq(api_key=GROQ_API_KEY)
+    # Desolation
+    # prompt = (f"You are writing notes based on this transcript for the game Pokemon Desolation to help the people in the meeting.. "
+    #           f"There are many important locations and characters, such as these {information}."
+    #           f"Use the {conversationSummarySchema} to help you craft your response and please"
+    #           f"\nsummarize the following transcript and provide clear action items for each person in the call:\n\n{transcript}\n\n")
+    # General
+    prompt = (f"You are writing notes based on this transcript to help the people in the meeting "
               f"Use the {conversationSummarySchema} to help you craft your response and please"
               f"\nsummarize the following transcript and provide clear action items for each person in the call:\n\n{transcript}\n\n")
     response = client.chat.completions.create(
@@ -61,7 +68,6 @@ def generate_summary_and_action_items(transcript):
 async def on_ready():
     print(f'Logged in as {bot.user}')
 
-
 @bot.command()
 async def join(ctx):
     """Command to make the bot join the voice channel."""
@@ -73,9 +79,10 @@ async def join(ctx):
 
 @bot.command()
 async def leave(ctx):
-    """Command to make the bot join the voice channel."""
+    """Command to make the bot leave the voice channel."""
     if ctx.voice_client:  # Check if the bot is already connected to a voice channel
         await ctx.send("Left the voice channel.")
+        await ctx.voice_client.disconnect()
         quit()
     else:
         await ctx.send("I'm not connected to any voice channel.")
@@ -83,6 +90,7 @@ async def leave(ctx):
 @bot.command()
 async def start_recording(ctx):
     """Command to start recording audio."""
+    global ffmpeg_process
     if ctx.voice_client:
         # Set up FFmpeg command to record audio from the voice channel
         audio_file = "recorded_audio.wav"
@@ -102,51 +110,44 @@ async def start_recording(ctx):
         ]
 
         # Start the process
-        process = subprocess.Popen(command)
+        ffmpeg_process = subprocess.Popen(command)
         await ctx.send("🔴 Recording started. Listening to this conversation...")
 
-        # # Wait for 30 seconds for the recording to complete
-        # await asyncio.sleep(30)
-        #
-        # # After the recording duration, we kill the FFmpeg process
-        # process.kill()
-        # await ctx.send("Recording stopped.")
-        #
-        # # Process the recorded audio after stopping
-        # if os.path.exists(audio_file):
-        #     # Transcribe the audio to text
-        #     transcript = transcribe_audio(audio_file)
-        #
-        #     # Generate summary and action items using Groq
-        #     gen_response = generate_summary_and_action_items(transcript)
-        #
-        #     # Send result to the channel
-        #     await ctx.send(f"Summary and Action Items:\n{gen_response}")
-        # else:
-        #     await ctx.send(f"Error: {audio_file} was not found. Make sure the recording was completed.")
     else:
         await ctx.send("The bot is not connected to a voice channel.")
-
 
 @bot.command()
 async def stop_recording(ctx):
     """Command to stop recording."""
+    global ffmpeg_process
     if ctx.voice_client:
-        # Stop the recording process (send stop signal to FFmpeg)
-        audio_file = "recorded_audio.wav"
-        if os.path.exists(audio_file):
+        if ffmpeg_process:
+            # Stop the recording process (send stop signal to FFmpeg)
+            ffmpeg_process.terminate()
+            ffmpeg_process = None
             await ctx.send("Recording stopped. Generating Summary and Action Items...")
-            # Transcribe the audio to text
-            transcript = transcribe_audio(audio_file)
 
-            # Generate summary and action items using Groq
-            gen_response = generate_summary_and_action_items(transcript)
+            # Process the recorded audio after stopping
+            audio_file = "recorded_audio.wav"
+            if os.path.exists(audio_file):
+                # Transcribe the audio to text
+                transcript = transcribe_audio(audio_file)
 
-            # Send result to the channel
-            await ctx.send(f"\n\n{gen_response}")
+                # Generate summary and action items using Groq
+                gen_response = generate_summary_and_action_items(transcript)
+
+                # Send result to the channel (split into chunks if necessary)
+                max_message_length = 2000
+                if len(gen_response) > max_message_length:
+                    for i in range(0, len(gen_response), max_message_length):
+                        await ctx.send(gen_response[i:i + max_message_length])
+                else:
+                    await ctx.send(f"\n\n{gen_response}")
+            else:
+                await ctx.send(f"Error: {audio_file} was not found. Make sure the recording was completed.")
         else:
-            await ctx.send("No audio recorded.")
+            await ctx.send("🚫 Not recording anything right now.")
     else:
-        await ctx.send("🚫 Not recording anything right now.")
+        await ctx.send("🚫 Not connected to a voice channel.")
 
 bot.run(DISCORD_BOT_TOKEN)

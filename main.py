@@ -6,6 +6,7 @@ from groq import Groq
 import subprocess
 from dotenv import load_dotenv
 from format import conversationSummarySchema
+from desolation import information
 
 # Load environment variables from .env file
 load_dotenv()
@@ -45,20 +46,9 @@ def transcribe_audio(audio_file):
     return transcript
 
 def generate_summary_and_action_items(transcript):
-    desolation_stuff = {"locations": ["Rotting Arcanius", "Chryseum Canyon", "Astraciel Town", "Cellia City",
-                                      "Darkroot Town", "Kanzen Temple", "Kanzen Cliffs", "Fairbale Town",
-                                      "the Dreamscape", "Keneph Resort", "Astraciel Wildwoods", "Addenfall Town",
-                                      "Redcliff Town", "Beamer Grid"],
-                        "characters": ["Shiv", "Aurora", "Player Character (PN)", "Hardy", "Scarlett",
-                                       "Ava", "Black Foxes", "Amelia", "Julian Waldenhall", "Reeve", "Aaron",
-                                       "Artem", "Silus", "Baron", "Darkrai", "Delica", "Axel", "Connor",
-                                       "Emily", "Garret", "Kairo", "Team Crescent", "Rosetta", "Lillith"],
-                        "game_elements": ["Episode 6 (Ep 6)", "Episode 7 (Ep7)", "Perfection", "Insight",
-                                          "Relationship Points", "Gym Battles", "Items"]
-                        }
     client = Groq(api_key=os.environ.get("GROQ_API_KEY"))
     prompt = (f"You are writing notes based on this transcript for the game: Pokemon Desolation. "
-              f"There are many important locations and characters, such as these {desolation_stuff}."
+              f"There are many important locations and characters, such as these {information}."
               f"Use the {conversationSummarySchema} to help you craft your response and please"
               f"\nsummarize the following transcript and provide clear action items for each person in the call:\n\n{transcript}\n\n")
     response = client.chat.completions.create(
